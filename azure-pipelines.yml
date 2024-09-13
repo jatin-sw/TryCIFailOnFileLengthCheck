@@ -14,6 +14,56 @@ steps:
   inputs:
     targetType: 'inline'
     script: |
-      # Write your PowerShell commands here.
-      
-      Write-Host "Hello World"
+      # Define variables
+      $org = "jatinwadhwani"  # Organization (e.g., dev.azure.com/your-org)
+      $project = "$(System.TeamProject)"  # Project name
+      $repoId = "$(Build.Repository.Name)"  # Repository ID
+      $pullRequestId = "$(System.PullRequest.PullRequestId)"  # PR ID
+      $pat = "$(System.AccessToken)"  # Personal Access Token for authentication
+
+      # Base64 encode the PAT for the authorization header
+      $token = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(":$pat"))
+      Write-Host $token
+
+      # Fetch all the iterations in the pull request
+      $urlForGetIterations = "https://dev.azure.com/$org/$project/_apis/git/repositories/$repoId/pullRequests/$pullRequestId/iterations?api-version=6.0"
+      Write-Host $urlForGetIterations
+
+      $iterations = Invoke-RestMethod -Uri $urlForGetIterations -Headers @{Authorization=("Basic {0}" -f $token)} -Method Get 
+      $iterationIds = $iterations.value.id
+      Write-Host $iterationIds
+
+      if($iterationIds.Count -gt 1)
+      { 
+          $iterationId = $iterationIds[($iterationIds.Count)-1]
+      }
+      else
+      {
+          $iterationId = $iterationIds
+      }
+      Write-Host $iterationId
+
+      # Fetch the list of files changed in the pull request using the REST API
+      $urlForGetFiles = "https://dev.azure.com/$org/$project/_apis/git/repositories/$repoId/pullRequests/$pullRequestId/iterations/$iterationId/changes?api-version=6.0"
+      Write-Host $urlForGetFiles
+
+      # Make the API request to fetch the PR files
+      $response = Invoke-RestMethod -Uri $urlForGetFiles -Headers @{Authorization=("Basic {0}" -f $token)} -Method Get
+
+      # Extract the changed files from the response
+      $changedFiles = $response.changeEntries | ForEach-Object { $_.item.path }
+      Write-Host $changedFiles
+
+      $maxLength = 20
+
+      foreach ($file in $changedFiles) {
+          $fileName = [System.IO.Path]::GetFileName($file)
+          Write-Host $fileName
+
+          if ($fileName.Length -gt $maxLength) {
+              Write-Host "File $fileName exceeds the length limit of $maxLength characters."
+              exit 1  # Fail the pipeline if any file exceeds the limit
+          }
+      }
+      Write-Host "All file names are within the length limit."
+      exit 0
